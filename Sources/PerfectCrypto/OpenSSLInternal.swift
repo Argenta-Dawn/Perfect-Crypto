@@ -18,6 +18,7 @@
 //
 
 import COpenSSL
+import Foundation
 import PerfectThread
 #if os(Linux)
     import SwiftGlibc
@@ -688,6 +689,136 @@ extension Cipher {
 		memcpy(r, m, mem.count)
 		return ret
 	}
+}
+
+extension Cipher {
+    /// EVP_SealInit, EVP_SealUpdate, EVP_SealFinal - EVP envelope encryption
+    /// Envelope encryption is the usual method of using public key encryption on large amounts of data,
+    /// this is because public key encryption is slow but symmetric encryption is fast.
+    /// So symmetric encryption is used for bulk encryption and the small random symmetric key used is transferred using public key encryption.
+    func evpSeal(_ data: UnsafeRawBufferPointer, key: UnsafeMutablePointer<EVP_PKEY>) -> UnsafeMutableRawBufferPointer? {
+        guard let ctx = EVP_CIPHER_CTX_new() else {
+            return nil
+        }
+        defer {
+            EVP_CIPHER_CTX_free(ctx)
+        }
+        
+        var pkey: UnsafeMutablePointer<EVP_PKEY>? = Optional(key)
+        
+        let IVLength = EVP_CIPHER_iv_length(.make(optional: self.evp))
+        let iv = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(IVLength))
+        var ek: UnsafeMutablePointer<UInt8>? = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(EVP_PKEY_size(pkey)))
+        let encrypted = UnsafeMutablePointer<UInt8>.allocate(capacity: data.count + Int(IVLength))
+        defer {
+            ek?.deallocate()
+            iv.deallocate()
+            encrypted.deallocate()
+        }
+        var ekl: Int32 = 0
+        
+        guard 1 == EVP_SealInit(ctx, self.evp, &ek, &ekl, iv, &pkey, 1) else {
+            return nil
+        }
+        
+        // EVP_SealUpdate 只是 EVP_EncryptUpdate 的一个宏
+        var processedLength: Int32 = 0
+        var encLength: Int32 = 0
+        var status = EVP_EncryptUpdate(ctx,
+                                      encrypted,
+                                      &processedLength,
+                                      data.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                                      Int32(data.count))
+        guard status == 1 else {
+            return nil
+        }
+        encLength = processedLength
+        
+        status = EVP_SealFinal(ctx, encrypted.advanced(by: Int(encLength)), &processedLength)
+        guard status == 1 else {
+            return nil
+        }
+        encLength += processedLength
+        
+        let cipher = Data(bytes: encrypted, count: Int(encLength))
+        let ekFinal = Data(bytes: ek!, count: Int(ekl))
+        let ivFinal = Data(bytes: iv, count: Int(IVLength))
+        
+        let rstData = Data(ekFinal + cipher + ivFinal)
+        let rst = UnsafeMutableRawBufferPointer.allocate(byteCount: rstData.count, alignment: 0)
+        rstData.copyBytes(to: rst)
+        return rst
+    }
+    
+    /// EVP_OpenInit, EVP_OpenUpdate, EVP_OpenFinal - EVP envelope decryption
+    func evpOpen(_ data: UnsafeRawBufferPointer, key: UnsafeMutablePointer<EVP_PKEY>) -> UnsafeMutableRawBufferPointer? {
+        guard let ctx = EVP_CIPHER_CTX_new() else {
+            return nil
+        }
+        defer {
+            EVP_CIPHER_CTX_free(ctx)
+        }
+        
+        // 转换为 UnsafeMutablePointer
+        let pkey = key
+        
+        // Size of symmetric encryption
+        let encKeyLength = Int(EVP_PKEY_size(pkey))
+        // Size of the corresponding cipher's IV
+        let encIVLength = Int(EVP_CIPHER_iv_length(.make(optional: self.evp)))
+        // Size of encryptedKey
+        let encryptedDataLength = data.count - encKeyLength - encIVLength
+
+        // Extract encryptedKey, encryptedData, encryptedIV from data
+        // data = encryptedKey + encryptedData + encryptedIV
+        let encryptedKey = data[0..<encKeyLength]
+        let encryptedData = data[encKeyLength..<encKeyLength+encryptedDataLength]
+        let encryptedIV = data[encKeyLength+encryptedDataLength..<data.count]
+        
+        // EVP_OpenInit returns 0 on error or the recovered secret key size if successful
+        var status = encryptedKey.withUnsafeBytes({ (ek: UnsafeRawBufferPointer) -> Int32 in
+            return encryptedIV.withUnsafeBytes({ (iv: UnsafeRawBufferPointer) -> Int32 in
+                return EVP_OpenInit(ctx, self.evp, ek.baseAddress?.assumingMemoryBound(to: UInt8.self), Int32(encryptedKey.count), iv.baseAddress?.assumingMemoryBound(to: UInt8.self), pkey)
+            })
+        })
+        guard status != 0 else {
+            return nil
+        }
+        
+        // EVP_SealUpdate 只是 EVP_EncryptUpdate 的一个宏
+        let allocLength = encryptLength(sourceCount: data.count)
+        let dstPtr = UnsafeMutableRawBufferPointer.allocate(byteCount: allocLength, alignment: 0)
+        var wroteLength = Int32(0)
+        
+        status = encryptedKey.withUnsafeBytes({ (ek: UnsafeRawBufferPointer) -> Int32 in
+            return encryptedIV.withUnsafeBytes({ (iv: UnsafeRawBufferPointer) -> Int32 in
+                return EVP_OpenInit(ctx, self.evp, ek.baseAddress?.assumingMemoryBound(to: UInt8.self), Int32(encryptedKey.count), iv.baseAddress?.assumingMemoryBound(to: UInt8.self), pkey)
+            })
+        })
+        _ = encryptedData.withUnsafeBytes({ (enc: UnsafeRawBufferPointer) -> Int32 in
+            return EVP_DecryptUpdate(ctx,
+                                     dstPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                                     &wroteLength,
+                                     enc.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                                     Int32(encryptedData.count))
+        })
+        
+        let owroteLength = Int(wroteLength)
+        guard 1 == EVP_OpenFinal(ctx,
+                                 dstPtr.baseAddress?.assumingMemoryBound(to: UInt8.self).advanced(by: Int(wroteLength)),
+                                 &wroteLength) else {
+            dstPtr.deallocate()
+            return nil
+        }
+        let iwroteLength = Int(wroteLength) + owroteLength
+        if iwroteLength < allocLength {
+            let newDstPtr = UnsafeMutableRawBufferPointer.allocate(byteCount: iwroteLength, alignment: 0)
+            memcpy(newDstPtr.baseAddress!, dstPtr.baseAddress!, iwroteLength)
+            dstPtr.deallocate()
+            return newDstPtr
+        }
+        return dstPtr
+    }
 }
 
 

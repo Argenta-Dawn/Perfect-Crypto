@@ -20,6 +20,7 @@
 
 import Foundation
 import PerfectLib
+import COpenSSL
 
 public extension FixedWidthInteger {
 	/// get a random number by the type
@@ -234,6 +235,30 @@ public extension Array where Element: Octal {
 		}
 		return v.map { UInt8($0) }
 	}
+    /// Decrypt this buffer using the indicated cipher, key an iv (initialization vector).
+    func evpSeal(_ cipher: Cipher, key: UnsafeMutablePointer<EVP_PKEY>) -> [UInt8]? {
+        let vv = withUnsafeBytes { sv in
+                cipher.evpSeal(sv, key: key)}
+        guard let v = vv else {
+            return nil
+        }
+        defer {
+            v.deallocate()
+        }
+        return v.map { UInt8($0) }
+    }
+    /// Decrypt this buffer using the indicated cipher, key an iv (initialization vector).
+    func evpOpen(_ cipher: Cipher, key: UnsafeMutablePointer<EVP_PKEY>) -> [UInt8]? {
+        let vv = withUnsafeBytes { sv in
+                cipher.evpOpen(sv, key: key)}
+        guard let v = vv else {
+            return nil
+        }
+        defer {
+            v.deallocate()
+        }
+        return v.map { UInt8($0) }
+    }
 	/// Encrypt this buffer using the indicated cipher, password, and salt.
 	/// Resulting data is PEM encoded CMS format.
 	func encrypt(_ cipher: Cipher,
@@ -401,6 +426,14 @@ public extension UnsafeRawBufferPointer {
 				 keyDigest: Digest = .md5) -> UnsafeMutableRawBufferPointer? {
 		return cipher.decrypt(self, password: password, salt: salt, keyIterations: keyIterations, keyDigest: keyDigest)
 	}
+    
+    func evpSeal(_ cipher: Cipher, key: UnsafeMutablePointer<EVP_PKEY>) -> UnsafeMutableRawBufferPointer? {
+        return cipher.evpSeal(self, key: key)
+    }
+
+    func evpOpen(_ cipher: Cipher, key: UnsafeMutablePointer<EVP_PKEY>) -> UnsafeMutableRawBufferPointer? {
+        return cipher.evpOpen(self, key: key)
+    }
 }
 
 extension UInt8 {

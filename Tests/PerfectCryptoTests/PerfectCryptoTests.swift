@@ -293,6 +293,49 @@ class PerfectCryptoTests: XCTestCase {
 			XCTAssert(a == b)
 		}
 	}
+    
+    func testEVP() {
+        let cipher = Cipher.bf_cbc
+        let random = [UInt8](randomCount: 2048)
+        
+        let pubKey = "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUparCwlvdbH6dvEOfou0/gCFQsHUfQrSDv+MuSUMAe8jzKE4qW+jK+xQU9a03GUnKHkkle+Q0pX/g6jXZ7r1/xAK5Do2kQ+X5xK9cipRgEKwIDAQAB\n-----END PUBLIC KEY-----\n"
+        let privKey = "-----BEGIN RSA PRIVATE KEY-----\nMIICWwIBAAKBgQDdlatRjRjogo3WojgGHFHYLugdUWAY9iR3fy4arWNA1KoS8kVw33cJibXr8bvwUAUparCwlvdbH6dvEOfou0/gCFQsHUfQrSDv+MuSUMAe8jzKE4qW+jK+xQU9a03GUnKHkkle+Q0pX/g6jXZ7r1/xAK5Do2kQ+X5xK9cipRgEKwIDAQABAoGAD+onAtVye4ic7VR7V50DF9bOnwRwNXrARcDhq9LWNRrRGElESYYTQ6EbatXS3MCyjjX2eMhu/aF5YhXBwkppwxg+EOmXeh+MzL7Zh284OuPbkglAaGhV9bb6/5CpuGb1esyPbYW+Ty2PC0GSZfIXkXs76jXAu9TOBvD0ybc2YlkCQQDywg2R/7t3Q2OE2+yo382CLJdrlSLVROWKwb4tb2PjhY4XAwV8d1vy0RenxTB+K5Mu57uVSTHtrMK0GAtFr833AkEA6avx20OHo61Yela/4k5kQDtjEf1N0LfI+BcWZtxsS3jDM3i1Hp0KSu5rsCPb8acJo5RO26gGVrfAsDcIXKC+bQJAZZ2XIpsitLyPpuiMOvBbzPavd4gY6Z8KWrfYzJoI/Q9FuBo6rKwl4BFoToD7WIUS+hpkagwWiz+6zLoX1dbOZwJACmH5fSSjAkLRi54PKJ8TFUeOP15h9sQzydI8zJU+upvDEKZsZc/UhT/SySDOxQ4G/523Y0sz/OZtSWcol/UMgQJALesy++GdvoIDLfJX5GBQpuFgFenRiRDabxrE9MNUZ2aPFaFp+DyAe+b4nDwuJaW2LURbr8AEZga7oQj0uYxcYw==\n-----END RSA PRIVATE KEY-----\n"
+        
+        do {
+            let privateKey = try PEMKey(source: privKey)
+            let publicKey = try PEMKey(source: pubKey)
+            
+            guard let encrypted = random.evpSeal(cipher, key: publicKey.pkey!) else {
+                return XCTAssert(false)
+            }
+            guard let decrypted = encrypted.evpOpen(cipher, key: privateKey.pkey!) else {
+                return XCTAssert(false)
+            }
+            XCTAssert(decrypted.count == random.count)
+            for (a, b) in zip(decrypted, random) {
+                XCTAssert(a == b)
+            }
+            
+        } catch {
+            XCTAssert(false, "\(error)")
+        }
+        
+        
+//        let publicKey = Array<UInt8>(PerfectCryptoTests.derKeyData(name: "public")!)
+//        let privateKey = Array<UInt8>(PerfectCryptoTests.derKeyData(name: "private")!)
+//
+//        let iv = [UInt8](randomCount: cipher.ivLength)
+//        guard let encrypted = random.evpSeal(cipher, key: publicKey, iv: iv) else {
+//            return XCTAssert(false)
+//        }
+//        guard let decrypted = encrypted.evpOpen(cipher, key: privateKey, iv: iv) else {
+//            return XCTAssert(false)
+//        }
+//        XCTAssert(decrypted.count == random.count)
+//        for (a, b) in zip(decrypted, random) {
+//            XCTAssert(a == b)
+//        }
+    }
 	
 	func testJWTVerify() {
 		let tstJwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ"
@@ -611,6 +654,47 @@ class PerfectCryptoTests: XCTestCase {
 			XCTFail(error.localizedDescription)
 		}
 	}
+    
+#if os(Linux)
+    static let bundle: Bundle? = nil
+#else
+    static let bundle: Bundle? = Bundle(for: PerfectCryptoTests.self)
+#endif
+    
+    /// Test for bundle usage.
+    static var useBundles: Bool {
+        if let bundle = PerfectCryptoTests.bundle {
+            let path = bundle.path(forResource: "public", ofType: "der")
+            return path != nil
+        } else {
+            return false
+        }
+    }
+    
+    static public func getFilePath(for resource: String, ofType: String) -> URL? {
+        var path: URL
+        if PerfectCryptoTests.useBundles, let bundle = PerfectCryptoTests.bundle {
+            guard let bPath = bundle.path(forResource: resource, ofType: ofType) else {
+                return nil
+            }
+            path = URL(fileURLWithPath: bPath)
+        } else {
+            path = URL(fileURLWithPath: #file).appendingPathComponent("../keys/" + resource + "." + ofType).standardized
+        }
+        return path
+    }
+    
+    static public func derKeyData(name: String) -> Data? {
+        guard let path = PerfectCryptoTests.getFilePath(for: name, ofType: "der") else {
+            XCTFail("Could not get file path")
+            return nil
+        }
+        guard let returnValue: Data = try? Data(contentsOf: URL(fileURLWithPath: path.path)) else {
+            XCTFail("Could not create derKeyData")
+            return nil
+        }
+        return returnValue
+    }
 	
 	static var allTests : [(String, (PerfectCryptoTests) -> () throws -> Void)] {
 		return [
