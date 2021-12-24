@@ -740,11 +740,16 @@ extension Cipher {
         }
         encLength += processedLength
         
+        var eklData = Data()
+        var convertedEkl = UInt32(ekl).bigEndian
+        withUnsafePointer(to: &convertedEkl) {
+            eklData.append(UnsafeRawPointer($0).assumingMemoryBound(to: UInt8.self), count: MemoryLayout<UInt32>.size)
+        }
         let cipher = Data(bytes: encrypted, count: Int(encLength))
-        let ekFinal = Data(bytes: ek!, count: Int(ekl))
         let ivFinal = Data(bytes: iv, count: Int(IVLength))
+        let ekFinal = Data(bytes: ek!, count: Int(ekl))
         
-        let rstData = Data(ekFinal + cipher + ivFinal)
+        let rstData = Data(eklData + ekFinal + ivFinal + cipher)
         let rst = UnsafeMutableRawBufferPointer.allocate(byteCount: rstData.count, alignment: 0)
         rstData.copyBytes(to: rst)
         return rst
@@ -762,18 +767,30 @@ extension Cipher {
         // 转换为 UnsafeMutablePointer
         let pkey = key
         
+        let sizeOfKeyLength = MemoryLayout<UInt32>.size
         // Size of symmetric encryption
         let encKeyLength = Int(EVP_PKEY_size(pkey))
         // Size of the corresponding cipher's IV
         let encIVLength = Int(EVP_CIPHER_iv_length(.make(optional: self.evp)))
+        
         // Size of encryptedKey
-        let encryptedDataLength = data.count - encKeyLength - encIVLength
+        let encryptedDataLength = data.count - sizeOfKeyLength - encKeyLength - encIVLength
 
         // Extract encryptedKey, encryptedData, encryptedIV from data
         // data = encryptedKey + encryptedData + encryptedIV
-        let encryptedKey = data[0..<encKeyLength]
-        let encryptedData = data[encKeyLength..<encKeyLength+encryptedDataLength]
-        let encryptedIV = data[encKeyLength+encryptedDataLength..<data.count]
+        _ = data[0..<sizeOfKeyLength]
+        let encryptedKeyStart = sizeOfKeyLength
+        let encryptedKeyEnd = encryptedKeyStart + encKeyLength
+        
+        let encryptedIVStart = encryptedKeyEnd
+        let encryptedIVEnd = encryptedIVStart + encIVLength
+        
+        let encryptedDataStart = encryptedIVEnd
+        let encryptedDataEnd = data.count
+        
+        let encryptedKey = data[encryptedKeyStart..<encryptedKeyEnd]
+        let encryptedIV = data[encryptedIVStart..<encryptedIVEnd]
+        let encryptedData = data[encryptedDataStart..<encryptedDataEnd]
         
         // EVP_OpenInit returns 0 on error or the recovered secret key size if successful
         var status = encryptedKey.withUnsafeBytes({ (ek: UnsafeRawBufferPointer) -> Int32 in
