@@ -305,10 +305,10 @@ class PerfectCryptoTests: XCTestCase {
             let privateKey = try PEMKey(source: privKey)
             let publicKey = try PEMKey(source: pubKey)
             
-            guard let encrypted = random.evpSeal(cipher, key: publicKey.pkey!) else {
+            guard let encrypted = random.evpSeal(cipher, key: publicKey) else {
                 return XCTAssert(false)
             }
-            guard let decrypted = encrypted.evpOpen(cipher, key: privateKey.pkey!) else {
+            guard let decrypted = encrypted.evpOpen(cipher, key: privateKey) else {
                 return XCTAssert(false)
             }
             XCTAssert(decrypted.count == random.count)

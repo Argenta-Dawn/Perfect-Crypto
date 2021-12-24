@@ -236,9 +236,9 @@ public extension Array where Element: Octal {
 		return v.map { UInt8($0) }
 	}
     /// Decrypt this buffer using the indicated cipher, key an iv (initialization vector).
-    func evpSeal(_ cipher: Cipher, key: UnsafeMutablePointer<EVP_PKEY>) -> [UInt8]? {
+    func evpSeal(_ cipher: Cipher, key: PEMKey) -> [UInt8]? {
         let vv = withUnsafeBytes { sv in
-                cipher.evpSeal(sv, key: key)}
+            cipher.evpSeal(sv, key: key.pkey!)}
         guard let v = vv else {
             return nil
         }
@@ -248,9 +248,9 @@ public extension Array where Element: Octal {
         return v.map { UInt8($0) }
     }
     /// Decrypt this buffer using the indicated cipher, key an iv (initialization vector).
-    func evpOpen(_ cipher: Cipher, key: UnsafeMutablePointer<EVP_PKEY>) -> [UInt8]? {
+    func evpOpen(_ cipher: Cipher, key: PEMKey) -> [UInt8]? {
         let vv = withUnsafeBytes { sv in
-                cipher.evpOpen(sv, key: key)}
+            cipher.evpOpen(sv, key: key.pkey!)}
         guard let v = vv else {
             return nil
         }
