@@ -35,7 +35,7 @@ let package = Package(
 		.library(name: "PerfectCrypto", targets: ["PerfectCrypto"])
 	],
     dependencies: [
-		.package(url: "https://github.com/PerfectlySoft/PerfectLib.git", from: "4.0.0"),
+		.package(url: "https://github.com/Argenta-Dawn/Perfect.git", .branch("feature/glibc")),
 		.package(url: "https://github.com/PerfectlySoft/Perfect-Thread.git", from: "3.0.0"),
 		.package(url: cOpenSSLRepo, from: "4.0.0")
 	],
